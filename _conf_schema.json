@@ -6,10 +6,16 @@
     "hint": "填入需要开启验证的群号（纯数字）。如果留空（默认），则对机器人所在的所有群生效。"
   },
   "verification_timeout": {
-    "description": "验证总超时时间（秒）",
+    "description": "默认验证超时时间（秒）",
     "type": "int",
     "default": 300,
-    "hint": "新成员必须在此时间内完成验证，否则启动踢出流程。默认 300 秒（5 分钟）。"
+    "hint": "如果当前时间不在分段设置中，则使用此默认超时时间。默认 300 秒（5 分钟）。"
+  },
+  "time_based_timeouts": {
+    "description": "分段验证超时时间",
+    "type": "list",
+    "default": ["07:30-22:30=18000", "22:31-07:29=600"],
+    "hint": "不同时间段应用不同的超时时间。格式为: 开始时间-结束时间=秒数。填写 -1 表示命中该时间段时关闭验证，例如 22:31-07:29=-1。未命中任何规则时回退到默认验证超时时间。"
   },
   "kick_countdown_warning_time": {
     "description": "踢出前警告倒计时（秒）",
@@ -23,40 +29,205 @@
     "default": 5,
     "hint": "发送“验证超时”消息后，等待多少秒再执行踢人操作。默认 5 秒。"
   },
+  "recall_unverified_messages": {
+    "description": "撤回未验证用户的入群后消息",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，用户入群后在通过验证前发送的全部群消息，会在其被踢出或自行退群时逐条撤回。需要 Bot 具备管理员权限。默认开启。"
+  },
+  "auto_approval_verify_only": {
+    "description": "免验证时段仅验证自动快速通过的入群成员",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时保持原行为：所有新成员按时间段规则执行验证；开启后，在命中免验证时段（例如配置为 -1）时，仅对申请后在窗口时间内快速通过的成员触发补验，而普通成员继续跳过。若当前时段本身要求验证，则所有新成员仍按原规则验证。默认关闭。"
+  },
+  "auto_approval_window_minutes": {
+    "description": "自动快速通过判定窗口（分钟）",
+    "type": "int",
+    "default": 1,
+    "hint": "用于识别“发起申请后 N 分钟内通过入群”的成员。通常 QQ 自动审批会在 1 分钟内甚至瞬时通过，建议保持 1 分钟。最小值为 1。"
+  },
+  "join_request_cache_ttl_seconds": {
+    "description": "进群申请缓存保留时长（秒）",
+    "type": "int",
+    "default": 360,
+    "hint": "机器人收到进群申请事件后，会暂存在内存中以便后续和入群事件做比对。建议设置为略大于窗口时间，例如窗口为 1 分钟时可设为 360 秒。"
+  },
+  "auto_approval_ignore_time_based_bypass": {
+    "description": "自动快速通过成员忽略免验证时段",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，即使命中分时免验证（例如时间段配置为 -1），只要该成员被判定为自动快速通过，仍会按默认验证超时时间发起验证。默认开启。"
+  },
+  "auto_approval_lookup_system_msg": {
+    "description": "入群时查询群系统消息作为自动审批兜底",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，当未收到 OneBot 的进群申请事件时，插件会在成员入群时调用 `get_group_system_msg` 查询已处理的加群审核记录，并据此识别自动快速通过成员。适用于 NapCat 未上报 `request/group/add` 的场景。默认开启。"
+  },
+  "auto_approval_system_msg_retry_delay": {
+    "description": "系统消息兜底重试延迟（秒）",
+    "type": "float",
+    "default": 1.0,
+    "hint": "首次调用 `get_group_system_msg` 未命中时，等待多少秒后再重试一次。适用于 NapCat 入群通知先到、系统消息列表稍后同步的场景。设为 0 可关闭重试。"
+  },
+  "auto_approval_nickname_match": {
+    "description": "允许使用昵称辅助识别自动快速通过成员",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，在 `get_group_system_msg` 的 `invitor_uin` 不稳定时，会结合 `requester_nick`、`invitor_nick` 与当前入群昵称做评分匹配，提高自动审批识别成功率。默认开启。"
+  },
+  "low_qq_level_force_verify_threshold": {
+    "description": "低 QQ 等级强制验证阈值",
+    "type": "int",
+    "default": -1,
+    "hint": "当用户的 qqLevel 小于或等于该值时，强制发起验证并忽略分时段免验证与自动审批放行规则。设为 -1 表示关闭。示例：设为 0 时，仅 0 级 QQ 强制验证。"
+  },
+  "low_qq_level_force_verify_timeout": {
+    "description": "低 QQ 等级强制验证超时时间（秒）",
+    "type": "int",
+    "default": -1,
+    "hint": "命中低 QQ 等级强制验证时使用的超时时长。设为大于 0 的值时单独生效；设为 -1 时回退使用 verification_timeout。"
+  },
+  "max_failed_attempts": {
+    "description": "最大允许答错次数",
+    "type": "int",
+    "default": 0,
+    "hint": "超过此次数将被直接踢出群聊。设为 0 则不限制（无限次重试）。"
+  },
+  "max_unverified_messages": {
+    "description": "最大无关消息数 (防刷屏)",
+    "type": "int",
+    "default": 0,
+    "hint": "未经验证前，发送与验证无关的消息达到此数量，将被直接踢出。设为 0 则不限制。建议大于提醒阈值。"
+  },
+  "unverified_reminder_count": {
+    "description": "无关消息提醒阈值",
+    "type": "int",
+    "default": 3,
+    "hint": "当用户发送无关消息达到此条数时，机器人会再次@他提醒验证。设为0关闭此功能。例如设为3，则第3次发无关消息时提醒。"
+  },
+  "custom_qa": {
+    "description": "自定义问答库",
+    "type": "list",
+    "default": [],
+    "hint": "格式为：问题=关键词1,关键词2。例如：你觉得今天状态如何？=活力满满,平静,快乐。用户回答中包含任意一个关键词即可通过。"
+  },
+  "qa_probability": {
+    "description": "问答题触发概率",
+    "type": "float",
+    "default": 0.5,
+    "hint": "在 0.0 到 1.0 之间。0 表示只出数学题，1 表示优先出问答题（若有题库）。默认 0.5。"
+  },
+  "switch_to_math_on_failure": {
+    "description": "错误后回退数学验证",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，若用户答错问答题，下一题将强制切换为数学题，降低入群门槛。默认开启。"
+  },
+  "allow_answer_without_at": {
+    "description": "允许不@机器人直接答题",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时保持原行为，仅识别 @ 机器人的验证消息；开启后，待验证成员可直接发送答案完成验证，无需 @ 机器人。默认关闭。"
+  },
+  "wrong_answer_bypass_behavior": {
+    "description": "答错后命中免验证时段时的处理方式",
+    "type": "string",
+    "options": ["pass", "continue"],
+    "default": "pass",
+    "hint": "选择答错后命中免验证时段时的处理方式：pass=立即结束当前验证流程并放行；continue=即使命中免验证时段，也继续完成当前已开始的验证流程。默认 pass。"
+  },
   "new_member_prompt": {
     "description": "新成员入群提示语",
     "type": "string",
     "default": "{at_user} 欢迎加入本群！请在 {timeout} 分钟内 @我 并回答下面的问题以完成验证：\n{question}",
-    "hint": "用户入群时的提示语。可用变量: {at_user}, {member_name}, {question}, {timeout} (分钟)。"
+    "hint": "用户入群时的提示语。清空此项则不发送消息。可用变量: {at_user}, {member_name}, {question}, {timeout} (动态分钟数)。"
   },
   "welcome_message": {
     "description": "验证成功提示语",
     "type": "string",
     "default": "{at_user} 验证成功，欢迎你的加入！",
-    "hint": "用户验证成功后发送的消息。可用变量: {at_user}, {member_name}。"
+    "hint": "验证成功后发送的消息。清空此项则不发送消息。可用变量: {at_user}, {member_name}。"
   },
   "wrong_answer_prompt": {
     "description": "答案错误提示语",
     "type": "string",
     "default": "{at_user} 答案错误，请重新回答验证。这是你的新问题：\n{question}",
-    "hint": "用户回答错误后发送的消息，之后会自动生成新问题。可用变量: {at_user}, {question}。"
+    "hint": "回答错误后发送的消息。清空此项则不发送消息。可用变量: {at_user}, {question}。"
+  },
+  "bypass_welcome_message": {
+    "description": "答错后因免验证放行的提示语",
+    "type": "string",
+    "default": "{at_user} 当前处于免验证时段，已结束本次验证流程。欢迎入群！",
+    "hint": "当 wrong_answer_bypass_behavior=pass 且成员答错后命中免验证时段时发送。清空此项则不发送消息。可用变量: {at_user}, {member_name}。"
+  },
+  "unverified_reminder_prompt": {
+    "description": "无关消息防忽略提示语",
+    "type": "string",
+    "default": "{at_user} 提醒：你已发送多条无关消息，请尽快 @我 回答下面的问题完成验证，否则将被踢出本群！\n{question}",
+    "hint": "当用户发送无关消息达到提醒阈值时触发。清空此项则不发送消息。可用变量: {at_user}, {member_name}, {question}。"
   },
   "countdown_warning_prompt": {
     "description": "超时警告提示语",
     "type": "string",
     "default": "{at_user} 验证即将超时，请尽快查看我（BOT）的验证消息进行人机验证！",
-    "hint": "在验证即将超时前发送的警告。可用变量: {at_user}, {member_name}。"
+    "hint": "超时前发送的警告。清空此项则不发送消息。可用变量: {at_user}, {member_name}。"
   },
   "failure_message": {
     "description": "验证超时提示语",
     "type": "string",
     "default": "{at_user} 验证超时，你将在 {countdown} 秒后被请出本群。",
-    "hint": "用户因超时而验证失败后，踢出前发送的消息。可用变量: {at_user}, {member_name}, {countdown} (踢出延迟秒数)。"
+    "hint": "验证失败后，踢出前发送的消息。清空此项则不发送消息。可用变量: {at_user}, {member_name}, {countdown} (踢出延迟秒数)。"
   },
   "kick_message": {
     "description": "最终踢出提示语",
     "type": "string",
     "default": "{at_user} 因未在规定时间内完成验证，已被请出本群。",
-    "hint": "用户被踢出后发送的公开消息。可用变量: {at_user}, {member_name}。"
+    "hint": "被踢出后发送的公开消息。清空此项则不发送消息。可用变量: {at_user}, {member_name}。"
+  },
+  "llm_question_enabled": {
+    "description": "启用 LLM 开放题评估",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后，题库中以 'llm:' 开头的题目将使用 LLM 进行评估。"
+  },
+  "llm_provider_id": {
+    "description": "LLM 评估使用的模型",
+    "type": "string",
+    "_special": "select_provider",
+    "default": "",
+    "hint": "留空则使用当前会话默认的 LLM 模型。"
+  },
+  "llm_evaluation_timeout": {
+    "description": "LLM 评估请求超时（秒）",
+    "type": "int",
+    "default": 30,
+    "hint": "LLM 评估请求的最大等待时间。"
+  },
+  "llm_error_behavior": {
+    "description": "LLM 调用错误时的处理方式",
+    "type": "string",
+    "options": ["pass", "retry_math"],
+    "default": "pass",
+    "hint": "pass=直接放行通过；retry_math=切换为数学题重新验证。"
+  },
+  "llm_timeout_buffer": {
+    "description": "LLM 评估超时缓冲（秒）",
+    "type": "int",
+    "default": 120,
+    "hint": "在基础验证超时基础上额外增加的时间，用于避免 LLM 评估导致的误超时。"
+  },
+  "llm_system_prompt": {
+    "description": "LLM 评估系统提示词",
+    "type": "string",
+    "default": "你是一个群聊验证助手。请根据题目和关键词评估用户的回答是否合理。回答应言之有理，与题目相关。",
+    "hint": "用于指导 LLM 进行评估的系统提示词。可用变量: {question}, {keywords}。"
+  },
+  "llm_evaluation_prompt": {
+    "description": "LLM 评估用户回答的提示词",
+    "type": "string",
+    "default": "题目：{question}\n关键词参考：{keywords}\n用户回答：{answer}\n请判断用户回答是否合理，只回复 'PASS' 或 'FAIL'。",
+    "hint": "用于评估用户回答的提示词。可用变量: {question}, {keywords}, {answer}。"
   }
 }
