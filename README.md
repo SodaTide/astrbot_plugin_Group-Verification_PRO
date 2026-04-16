@@ -134,6 +134,9 @@ llm:你最喜欢哪个季节？=春天、夏天、秋天、冬天、季节
 
 ## 📋 更新日志
 
+### v26.4.16 - 2026-04-15
+* [优化] 将 LLM 开放题与问答题放入相同概率池中。
+
 ### v26.4.15 - 2026-04-15
 * [新增] 新增 LLM 开放题评估功能，支持使用 LLM 判断用户回答是否合理。
 * [新增] 新增 `llm_question_enabled`、`llm_provider_id`、`llm_evaluation_timeout`、`llm_error_behavior`、`llm_timeout_buffer`、`llm_system_prompt`、`llm_evaluation_prompt` 配置项。

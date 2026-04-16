@@ -13,7 +13,7 @@ from astrbot.api.star import Context, Star, register
     "qq_member_verify",
     "SodaTide",
     "QQ群成员动态验证插件 (group_verification)",
-    "26.4.15",
+    "26.4.16",
     "基于 https://github.com/huntuo146/astrbot_plugin_Group-Verification_PRO 修改"
 )
 class QQGroupVerifyPlugin(Star):
@@ -528,8 +528,9 @@ class QQGroupVerifyPlugin(Star):
                 question = f"{num1} - {num2} = ?"
             return question, answer, "math"
         
-        # 从题库中选择题目（LLM 题目和普通题目统一随机选择）
-        if self.question_bank:
+        # 根据 qa_probability 决定使用问答题库还是数学题
+        use_qa = bool(self.question_bank) and (random.random() < self.qa_probability)
+        if use_qa:
             # 筛选可用题目：如果 LLM 功能未启用，则排除 llm: 前缀的题目
             available_questions = [
                 q for q in self.question_bank.keys()
@@ -553,7 +554,7 @@ class QQGroupVerifyPlugin(Star):
                     # 普通关键词题目
                     return question, answer_data, "qa"
         
-        # 题库为空或无可选题目时，回退到数学题
+        # 使用数学题
         op_type = random.choice(['add', 'sub'])
         if op_type == 'add':
             num1 = random.randint(0, 100)
